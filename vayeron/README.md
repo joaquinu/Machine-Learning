@@ -73,6 +73,15 @@ The threshold is sharp — `survival_threshold()` gives it in closed form, ~22
 sigma on RMS at the field's 626 s cadence — so the answer is either "none" or
 "a large fraction", with little in between.
 
+## Reports
+
+- `reports/KX-VAY-015-target-changelist.md` — the six proposed changes to the
+  anomaly target, with the evidence for each and what it costs. Start here.
+- `reports/FINDINGS.md` — the working record behind them, including the
+  candidates that were tested and rejected.
+- `reports/campaign/`, `reports/surrogate*/`, `reports/label_audit_surrogate/` —
+  generated outputs, regenerable with the commands above.
+
 ## Three things the external data forces you to decide
 
 **1. The rpm quality gate excludes the rig.** KX-VAY-012 gates on

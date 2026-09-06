@@ -114,18 +114,9 @@ class ScoringConfig:
     # as a drift-resistant alternative. Default stays at the delivered spec.
     aggregation: str = "max"
     aggregation_k: int = 2
-    # KX-VAY-012 smooths the score but attributes fault_channel from the
-    # *instantaneous* per-channel severity. For an amplitude-modulated defect
-    # (inner race, ball spin) the correct channel leads by only ~1.5x, which
-    # per-snapshot noise swamps, so the attribution is a coin flip while the
-    # score it accompanies is stable. Attributing from the same smoothed
-    # severity the score uses removes that inconsistency - but measured over
-    # the surrogate campaign it did not improve attribution at all, because the
-    # ordering problem is a baseline-dispersion effect, not a noise effect
-    # (see reports/FINDINGS.md section 6). Kept as an option; not recommended
-    # on this evidence.
-    attribute_from_smoothed: bool = False
-    # How fault_channel picks a driver.
+    # How fault_channel picks a driver. For an amplitude-modulated defect
+    # (inner race, ball spin) the correct channel leads the others by only
+    # ~1.5x, so the choice of rule decides the answer.
     #   "max_severity"      - KX-VAY-012 as written: argmax over all channels.
     #   "spectral_priority" - if any spectral channel is above its own control
     #                         limit, attribute to the highest of those;
@@ -457,12 +448,7 @@ def score_run(
     )
     out["is_anomaly"] = (y >= TIER_EDGES[1]).astype(int)
 
-    if cfg.attribute_from_smoothed:
-        span = ema_span if ema_span else max(cfg.ema_tau_hours, 1.0)
-        attribution_source = out[severity_cols].ewm(span=span, adjust=False,
-                                                    ignore_na=True).mean()
-    else:
-        attribution_source = out[severity_cols]
+    attribution_source = out[severity_cols]
     if cfg.attribution == "max_severity":
         driver = attribution_source.idxmax(axis=1).astype("object")
     elif cfg.attribution == "spectral_priority":
@@ -505,14 +491,14 @@ def apply_vayeron_control_limits(
     df: pd.DataFrame,
     healthy_window_ratio: float = 0.10,
     ema_span_hours: float = 2.0,
-    samples_per_hour: float | None = None,
+    samples_per_hour: float | None = None,  # noqa: ARG001 - compatibility only
     **kwargs,
 ) -> tuple[pd.DataFrame, dict]:
     """Backwards-compatible wrapper matching the original prototype signature.
 
     ``samples_per_hour`` is accepted for compatibility and ignored: the cadence
     is measured from the timestamps instead of being asserted.
-    """
+    """  # noqa: ARG001
     cfg = ScoringConfig(
         healthy_window_ratio=healthy_window_ratio,
         ema_tau_hours=ema_span_hours,

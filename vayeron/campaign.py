@@ -99,7 +99,6 @@ def run(
                             / scored["elapsed_hours"].iloc[fail_idx]
                             if alert.terminal_lead_time_hours is not None else None),
                         "first_driver": alert.driving_channel,
-                        "first_driver_correct": alert.driving_channel == expected,
                         "terminal_driver": alert.terminal_driving_channel,
                         "driver_correct": alert.terminal_driving_channel == expected,
                         "recovering_episodes": alert.prior_episodes,
@@ -123,7 +122,6 @@ def summarise(df: pd.DataFrame) -> pd.DataFrame:
         return pd.Series({
             "runs": len(g),
             "detected": int(g["detected"].sum()),
-            "first_driver_correct": int(g["first_driver_correct"].sum()),
             "driver_correct": int(g["driver_correct"].sum()),
             "terminal_lead_h_median": lead.median() if not lead.empty else np.nan,
             "terminal_lead_h_min": lead.min() if not lead.empty else np.nan,
@@ -166,7 +164,7 @@ def render_markdown(df: pd.DataFrame, summary: pd.DataFrame) -> str:
         lines.append(
             f"| `{r['fault_mode']}` | {r['features']} | {r['variant']} | "
             f"{int(r['detected'])}/{int(r['runs'])} | "
-            f"{int(r['driver_correct'])}/{int(r['runs'])} | {lead} | {frac} |")
+            f"{int(r['driver_correct'])}/{int(r['runs'])} | {lead} | {frac} | {fa} |")
     lines.append("")
     return "\n".join(lines)
 

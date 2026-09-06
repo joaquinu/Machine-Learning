@@ -187,7 +187,6 @@ def _fmt_hours(h: float | None) -> str:
 
 
 def render_markdown(
-    scored: pd.DataFrame,
     scoring: ScoringReport,
     lead: LeadTimeReport,
     cfg: ScoringConfig,

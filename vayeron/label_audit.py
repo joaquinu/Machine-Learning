@@ -118,7 +118,7 @@ def audit(df: pd.DataFrame, cfg: ScoringConfig | None = None,
             pd.concat(all_eps, ignore_index=True) if all_eps else pd.DataFrame())
 
 
-def render_markdown(summary: pd.DataFrame, episodes: pd.DataFrame, source: str) -> str:
+def render_markdown(summary: pd.DataFrame, source: str) -> str:
     tot = summary[["rows", "alert_rows_spec", "alert_rows_prefiltered",
                    "alert_episodes_spec", "alert_episodes_knock_driven",
                    "alert_rows_knock_driven", "tier_changed_rows"]].sum()
@@ -192,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     summary.to_csv(out / "summary.csv", index=False)
     episodes.to_csv(out / "episodes.csv", index=False)
-    md = render_markdown(summary, episodes, str(args.csv))
+    md = render_markdown(summary, str(args.csv))
     (out / "label_audit.md").write_text(md)
     print(md)
     print(f"\nWritten to {out.resolve()}")

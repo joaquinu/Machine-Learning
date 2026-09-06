@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> int:
                 "config": {k: str(v) for k, v in vars(cfg).items()}},
                out / "summary.json")
     title = args.title or "Vayeron control limits applied to a run-to-failure record"
-    md = render_markdown(scored, scoring, lead, cfg, title, source_note)
+    md = render_markdown(scoring, lead, cfg, title, source_note)
 
     if args.sensitivity:
         from . import sensitivity as sens

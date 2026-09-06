@@ -109,11 +109,11 @@ On the run-to-failure surrogate, across 6 seeds:
 
 | | pre-onset time above the alert threshold | terminal alert lead time |
 |---|---|---|
-| KX-VAY-012 as written | 2.92 h median, 0.17 – 5.17 h | 11.08 h median |
-| `--prefilter-median 3` | **0.58 h median, 0.00 – 3.17 h** | 11.08 h median |
+| KX-VAY-012 as written | 3.08 h median, 0.00 – 5.33 h | 11.0 h median |
+| `--prefilter-median 3` | **0.58 h median, 0.00 – 3.17 h** | 11.0 h median |
 
 An 80% cut in false-alarm exposure at no measurable cost in lead time. It is a
-reduction, not a cure: two of six seeds still spend over an hour above the alert
+reduction, not a cure: three of six seeds still spend over an hour above the alert
 threshold before any damage exists.
 
 **`max` over channels lets one drifting channel carry the score.** Section 7
@@ -168,15 +168,15 @@ change, which a test covers.
 
 ## 6. Across every modelled failure mode and seed
 
-Five failure modes x six seeds x two scoring variants, 60 scored runs
-(`reports/campaign/`). Modes differ in how the defect shows up: an outer-race
+Five failure modes x six seeds x two feature variants x three scoring variants,
+180 scored runs (`reports/campaign/`). Modes differ in how the defect shows up: an outer-race
 spall sits in a fixed load zone and is unmodulated; an inner-race defect passes
 through the load zone once per shaft revolution; a rolling-element defect is
 modulated at cage rate; a cage fault rides the Factor-40 line; a grease dry-out
 produces friction heat and broadband noise with no defect line at all.
 
-**Detection held in 60 of 60 runs**, at a median terminal lead of 11.08 h —
-28% of life, range 22–32% by mode. No mode, seed or variant failed to establish
+**Detection held in 180 of 180 runs**, at a median terminal lead of 11.0 h —
+27.8% of life, range 22–32% by mode. No mode, seed or variant failed to establish
 an alert before failure.
 
 **Attribution did not hold, and I could not fix it.** `fault_channel` is a
@@ -312,9 +312,9 @@ datasheet and section 6.2, not on a measured lead-time gain.
 
 ## 8. Reading this across to the business question
 
-11 h of warning on a ~39 h accelerated test is **28% of total life** (median
-over all 60 runs), with the alert landing roughly 40% of the way into the damage
-phase. Absolute hours do not transfer — an accelerated
+11 h of warning on a ~39 h accelerated test is **27.8% of total life** (median
+over all 180 runs), with the alert landing roughly 40% of the way into the
+damage phase. Absolute hours do not transfer — an accelerated
 test compresses propagation that takes weeks in a field idler — but the
 *fractional* lead does, and 26% of remaining life on a conveyor idler whose
 degradation phase runs weeks is the "days to weeks" margin the programme is
