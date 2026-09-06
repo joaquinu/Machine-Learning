@@ -207,11 +207,30 @@ def render_markdown(df: pd.DataFrame) -> str:
     leak = g.get_group("LEAKY augmentation")["macro_f1"].mean()
     lines += [
         f"- Real effect (leak-free − baseline): **{free - base:+.3f}** macro-F1.",
-        f"- Illusion (leaky − leak-free): **{leak - free:+.3f}** macro-F1, bought entirely "
-        "by putting shifted copies of training windows into the test set.",
+        f"- Leak effect (leaky − leak-free): **{leak - free:+.3f}** macro-F1.",
         "",
-        "The second number is the reason this module exists. A pipeline that augments "
-        "before splitting reports the sum of the two and calls it an improvement.",
+        "The leak was expected to inflate the score substantially and did not. Two likely "
+        "reasons, both specific to this setup: the model is tiny (2.7k parameters) so it "
+        "has little capacity to memorise a shifted duplicate, and the surrogate's minority "
+        "episodes are long, so a window shifted by one reading carries almost the same "
+        "information as its neighbour either way. Neither makes leaking safe - with a "
+        "larger model, or shorter and sparser episodes, the same mistake could pay much "
+        "better. The split-then-augment order costs nothing, so there is no reason to "
+        "take the risk.",
+        "",
+        "## The headline metric and the operational one disagree",
+        "",
+        "Macro-F1 rose, but it did so by buying precision with recall. Augmentation gave "
+        f"the alert class **{100 * (g.get_group('leak-free augmentation')['precision_alert'].mean() - g.get_group('baseline')['precision_alert'].mean()):+.1f}** points of precision "
+        f"and cost it **{100 * (g.get_group('leak-free augmentation')['recall_alert'].mean() - g.get_group('baseline')['recall_alert'].mean()):+.1f}** points of recall. For predictive "
+        "maintenance that is the wrong direction: a missed alert is a seized roller and a "
+        "torn belt, a false alert is an inspection. KX-VAY-013's own recommendation - ship "
+        "the binary detector at 76% recall - implies recall is what the programme values.",
+        "",
+        "So the honest reading is that this augmentation is **not** a free improvement. It "
+        "is a knob that trades detections for false alarms, and the tier thresholds already "
+        "do that more directly and more legibly. Take it only if a precision problem is "
+        "what you actually have.",
         "",
     ]
     return "\n".join(lines)

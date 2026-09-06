@@ -234,6 +234,15 @@ Recorded so they are not re-attempted.
 | **Attribute from smoothed severity** rather than instantaneous | No effect whatever. The ordering problem is dispersion, not noise. Removed. |
 | **Attribute at the first crossing** rather than the terminal one | Worse everywhere — 1/6 for outer race against 6/6 — because early crossings are frequently drift or knock episodes, themselves `rms`-driven. |
 | **Focal loss / oversampling** for the class imbalance (KX-VAY-013) | Already rejected there; noted for completeness. Plain MSE remains correct. |
+| **Minority-class overlapping windows** — slide the window where the label is scarce, recovering the samples non-overlapping windows discard | Works, but not in the direction wanted. Training windows for `watch` and `alert` grow ~7.5x and macro-F1 rises +0.057, entirely by buying precision with recall: the alert class gains 8.6 points of precision and loses 6.2 points of recall. A missed alert is a seized roller; a false one is an inspection. The tier thresholds already trade those off more directly. Implemented in `benchmarks.py`, off by default. |
+
+On the augmentation result, one methodological note worth keeping: generating
+overlapping windows *before* splitting fills the test set with shifted copies of
+training data. Measured here that mistake was worth only +0.003 macro-F1 — much
+less than expected, plausibly because the model is tiny and the surrogate's
+episodes are long — but it is free to avoid, so `benchmarks.py` splits first and
+admits an augmented window only when every reading it covers already belongs to
+a training window. A test asserts it.
 
 Available but **not** campaign-tested: `kth_max` aggregation, which requires two
 channels to excurse together per §6.2's "coherent multi-channel" definition. It
