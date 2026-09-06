@@ -1,0 +1,5 @@
+group,rows,alert_rows_spec,alert_rows_prefiltered,alert_episodes_spec,alert_episodes_knock_driven,alert_rows_knock_driven,knock_row_share_of_alerts,tier_changed_rows,score_mae,share_normal_spec,share_normal_prefiltered,share_watch_spec,share_watch_prefiltered,share_alert_spec,share_alert_prefiltered,share_critical_spec,share_critical_prefiltered
+C_CNT,20400,0,0,0,0,0,0.0,0,0.006263400221200037,1.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0
+C_LHS,20400,0,0,0,0,0,0.0,0,0.006100831634936991,1.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0
+C_RHS,20400,1258,1255,63,0,0,0.0,36,0.006417503101436113,0.9357843137254902,0.9355392156862745,0.0025490196078431374,0.0029411764705882353,0.006470588235294118,0.006421568627450981,0.05519607843137255,0.055098039215686276
+R0,20400,0,0,0,0,0,0.0,0,0.006275635128965212,1.0,1.0,0.0,0.0,0.0,0.0,0.0,0.0

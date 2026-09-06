@@ -1,0 +1,167 @@
+{
+  "scoring": {
+    "baselines": {
+      "rms": {
+        "channel": "rms",
+        "source_column": "rms_norm",
+        "median": 0.5010446249293503,
+        "mad": 0.017872242593122756,
+        "sigma_equivalent": 0.026497386868563795,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "bpfo": {
+        "channel": "bpfo",
+        "source_column": "bpfo",
+        "median": 2.024403811082893,
+        "mad": 0.5186445782113992,
+        "sigma_equivalent": 0.7689424516562204,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "bpfi": {
+        "channel": "bpfi",
+        "source_column": "bpfi",
+        "median": 1.7383057776596307,
+        "mad": 0.28938093129046527,
+        "sigma_equivalent": 0.4290361687312438,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "bsf": {
+        "channel": "bsf",
+        "source_column": "bsf",
+        "median": 1.7812731709983094,
+        "mad": 0.4357139973051365,
+        "sigma_equivalent": 0.6459895724045953,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "ftf": {
+        "channel": "ftf",
+        "source_column": "ftf",
+        "median": 1.667995801631674,
+        "mad": 0.2599814537972871,
+        "sigma_equivalent": 0.3854485033998578,
+        "mad_floored": false,
+        "n_samples": 36
+      }
+    },
+    "healthy_rows": 36,
+    "healthy_span_hours": 5.833333333333333,
+    "total_rows": 240,
+    "gated_rows": 0,
+    "median_cadence_seconds": 600.0000000000002,
+    "cadence_cv": 1.1274665894846632e-14,
+    "ema_mode": "span",
+    "ema_span_samples": 11.999999999999995,
+    "channels_scored": [
+      "rms",
+      "bpfo",
+      "bpfi",
+      "bsf",
+      "ftf"
+    ]
+  },
+  "lead_time": {
+    "failure_index": 235,
+    "failure_timestamp": "2026-05-02 15:10:00",
+    "failure_elapsed_hours": 39.166666666666664,
+    "total_acquisitions": 240,
+    "persistence_samples": 3,
+    "crossings": [
+      {
+        "tier": "watch",
+        "threshold": 0.35,
+        "crossed": true,
+        "index": 169,
+        "timestamp": "2026-05-02 04:10:00",
+        "elapsed_hours": 28.166666666666668,
+        "lead_time_hours": 10.999999999999996,
+        "lead_time_life_fraction": 0.28085106382978714,
+        "driving_channel": "bpfo",
+        "terminal_index": 169,
+        "terminal_elapsed_hours": 28.166666666666668,
+        "terminal_lead_time_hours": 10.999999999999996,
+        "terminal_driving_channel": "bpfo",
+        "prior_episodes": 0,
+        "prior_episode_hours": 0.0
+      },
+      {
+        "tier": "alert",
+        "threshold": 0.5,
+        "crossed": true,
+        "index": 174,
+        "timestamp": "2026-05-02 05:00:00",
+        "elapsed_hours": 29.0,
+        "lead_time_hours": 10.166666666666664,
+        "lead_time_life_fraction": 0.2595744680851063,
+        "driving_channel": "bpfo",
+        "terminal_index": 174,
+        "terminal_elapsed_hours": 29.0,
+        "terminal_lead_time_hours": 10.166666666666664,
+        "terminal_driving_channel": "bpfo",
+        "prior_episodes": 0,
+        "prior_episode_hours": 0.0
+      },
+      {
+        "tier": "critical",
+        "threshold": 0.8,
+        "crossed": true,
+        "index": 181,
+        "timestamp": "2026-05-02 06:10:00",
+        "elapsed_hours": 30.166666666666668,
+        "lead_time_hours": 8.999999999999996,
+        "lead_time_life_fraction": 0.2297872340425531,
+        "driving_channel": "bpfo",
+        "terminal_index": 199,
+        "terminal_elapsed_hours": 33.166666666666664,
+        "terminal_lead_time_hours": 6.0,
+        "terminal_driving_channel": "rms",
+        "prior_episodes": 1,
+        "prior_episode_hours": 0.6666666666666643
+      }
+    ],
+    "peak_score": 0.9999999923020838,
+    "peak_score_hours_to_failure": 0.0,
+    "tier_shares": {
+      "normal": 0.7041666666666667,
+      "watch": 0.020833333333333332,
+      "alert": 0.0875,
+      "critical": 0.1875
+    },
+    "ground_truth": {
+      "onset_index": 132,
+      "onset_elapsed_hours": 22.0,
+      "detection_delay_hours": 7.0,
+      "false_alarm_hours_before_onset": 0.0
+    }
+  },
+  "config": {
+    "alert_limits": "{'rms': 3.5, 'bpfo': 4.0, 'bpfi': 4.0, 'bsf': 4.0, 'ftf': 4.0}",
+    "healthy_window_ratio": "0.15",
+    "healthy_window_hours": "None",
+    "healthy_mask_column": "None",
+    "min_healthy_samples": "30",
+    "rpm_gate": "(1500.0, 2000.0)",
+    "drop_zero_rms": "True",
+    "normalize_rms_by_rpm": "True",
+    "rpm_reference": "1770.0",
+    "prefilter_median_samples": "3",
+    "ema_tau_hours": "2.0",
+    "ema_mode": "span",
+    "irregular_cadence_cv": "0.25",
+    "logistic_gain": "3.0",
+    "logistic_center": "1.0",
+    "clip_negative_severity": "False",
+    "aggregation": "max",
+    "aggregation_k": "2",
+    "attribution": "max_severity",
+    "thermal_channels": "()",
+    "temp_asymmetry_floor_c": "4.0",
+    "mad_floor_relative": "1e-06",
+    "mad_floor_absolute": "1e-12",
+    "min_mad_fraction_of_median": "0.0",
+    "persistence_samples": "3"
+  }
+}

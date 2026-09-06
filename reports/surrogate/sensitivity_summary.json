@@ -1,0 +1,16 @@
+{
+  "n_configs": 108,
+  "alert_terminal_lead_h_median": 10.166666666666664,
+  "alert_terminal_lead_h_min": 9.499999999999996,
+  "alert_terminal_lead_h_max": 11.333333333333332,
+  "median_prior_episodes": 0.0,
+  "alert_lead_h_median": 10.333333333333332,
+  "alert_lead_h_min": 9.499999999999996,
+  "alert_lead_h_max": 33.0,
+  "alert_lead_h_iqr": [
+    9.999999999999996,
+    33.0
+  ],
+  "configs_with_no_alert": 0,
+  "dominant_driver": "bpfo"
+}

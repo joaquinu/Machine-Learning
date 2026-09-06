@@ -1,0 +1,7 @@
+baseline,thermal,alert_rate,temp_max_driven,asym_driven
+warm_start,none,0.015416666666666667,0,0
+warm_start,asymmetry,0.015416666666666667,0,5
+warm_start,temp_max+asymmetry,0.015416666666666667,0,5
+cool_baseline,none,0.0032475490196078433,0,0
+cool_baseline,asymmetry,0.0033700980392156864,0,9
+cool_baseline,temp_max+asymmetry,0.712107843137255,60483,165
