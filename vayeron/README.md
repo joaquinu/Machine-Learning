@@ -20,8 +20,10 @@ equation, not a confirmed mechanical failure. Scoring an external record that
 | `synthetic.py` | modelled run-to-failure surrogate, for verifying the pipeline without the archive |
 | `sensitivity.py` | sweeps the analyst's free choices so a lead time is not a one-configuration artefact |
 | `report.py` | lead-time analysis, markdown report, diagnostic plot |
+| `campaign.py` | multi-seed x multi-fault-mode sweep over the surrogate |
+| `label_audit.py` | how much of an existing `alert` class is EMA-smeared knocks |
 | `cli.py` | `python -m vayeron.cli` |
-| `tests/` | 17 unit tests, `python -m pytest vayeron/tests` |
+| `tests/` | 23 unit tests, `python -m pytest vayeron/tests` |
 
 ## Running it against the real archive
 
@@ -54,7 +56,22 @@ Verify the pipeline with no data at all:
 
 ```bash
 python -m vayeron.cli --synthetic --healthy-ratio 0.15 --sensitivity --out reports/surrogate
+python -m vayeron.campaign     # 5 fault modes x 6 seeds x 2 variants
 ```
+
+## Auditing the field labels
+
+Whether the field dataset's `alert` class contains EMA-smeared knocks is one
+command against the raw telemetry (not `anomaly_score`, which is recomputed):
+
+```bash
+python -m vayeron.label_audit --csv vayeron_anomaly_dataset.csv --group-by roller_id \
+    --out reports/label_audit
+```
+
+The threshold is sharp — `survival_threshold()` gives it in closed form, ~22
+sigma on RMS at the field's 626 s cadence — so the answer is either "none" or
+"a large fraction", with little in between.
 
 ## Three things the external data forces you to decide
 

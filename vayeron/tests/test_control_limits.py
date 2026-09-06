@@ -225,3 +225,109 @@ def test_prototype_wrapper_still_works():
     scored, baselines = apply_vayeron_control_limits(make_frame(), samples_per_hour=6)
     assert {"anomaly_score", "anomaly_tier", "fault_channel"} <= set(scored.columns)
     assert set(baselines) == {"rms", "bpfo", "bpfi", "bsf", "ftf"}
+
+
+# --- fault modes and campaign ------------------------------------------------
+
+def _degradation_ratios(mode: str, lo: int = 125, hi: int = 150) -> dict[str, float]:
+    """Median envelope ratio per channel over the degradation phase."""
+    from vayeron.synthetic import SurrogateConfig, generate_run
+
+    cfg = FeatureConfig(fs=25600.0, rpm=1770.0)
+    _, waves = generate_run(SurrogateConfig(fault_mode=mode, n_acquisitions=180))
+    feats = [waveform_features(w, cfg) for w in waves[lo:hi]]
+    return {c: float(np.median([f[c] for f in feats]))
+            for c in ("bpfo", "bpfi", "bsf", "ftf")}
+
+
+def test_unmodulated_faults_light_up_their_own_line():
+    """A defect fixed relative to the load zone lands in the single bin cleanly."""
+    from vayeron.synthetic import FAULT_MODES
+
+    for mode in ("outer_race", "cage"):
+        ratios = _degradation_ratios(mode)
+        expected = FAULT_MODES[mode]["channel"]
+        others = [v for c, v in ratios.items() if c != expected]
+        assert ratios[expected] > 1.5 * max(others), f"{mode}: {ratios}"
+
+
+def test_modulation_halves_the_attribution_margin():
+    """Pins the sideband finding. Load-zone and cage modulation spread a
+    defect's energy into sidebands at f_defect +/- modulation, off the single
+    bin the Goertzel ratio watches. The line still leads once several
+    acquisitions are pooled - but at roughly half the contrast of an
+    unmodulated defect, which is why single-snapshot fault_channel attribution
+    is unreliable for these modes while detection still succeeds."""
+    from vayeron.synthetic import FAULT_MODES
+
+    def contrast(mode: str) -> float:
+        ratios = _degradation_ratios(mode)
+        expected = FAULT_MODES[mode]["channel"]
+        others = [v for c, v in ratios.items() if c != expected]
+        return ratios[expected] / max(others)
+
+    unmodulated = [contrast(m) for m in ("outer_race", "cage")]
+    modulated = [contrast(m) for m in ("inner_race", "ball_spin")]
+    assert min(unmodulated) > 2.5      # defect line clearly dominant
+    assert all(1.0 < c < 2.0 for c in modulated)  # leads, but only just
+    assert max(modulated) < min(unmodulated) / 1.5
+
+
+def test_thermal_mode_has_no_defect_line_but_does_heat_up():
+    from vayeron.synthetic import SurrogateConfig, generate_run
+
+    cfg = FeatureConfig(fs=25600.0, rpm=1770.0)
+    meta, waves = generate_run(SurrogateConfig(fault_mode="thermal", n_acquisitions=180))
+    early, late = waveform_features(waves[10], cfg), waveform_features(waves[170], cfg)
+    ratios = [late[c] / early[c] for c in ("bpfo", "bpfi", "bsf", "ftf")]
+    assert max(ratios) < 3.0            # no line emerges
+    assert late["rms"] > early["rms"]   # friction noise does rise
+    assert meta["temp1"].iloc[-1] > meta["temp1"].iloc[0] + 20
+
+
+def test_campaign_runs_and_reports_every_combination():
+    from vayeron.campaign import VARIANTS, run, summarise
+
+    df = run(fault_modes=["outer_race"], seeds=[1, 2], progress=False)
+    assert len(df) == 2 * len(VARIANTS)
+    assert df["detected"].all()
+    assert set(df["variant"]) == set(VARIANTS)
+    summary = summarise(df)
+    assert len(summary) == len(VARIANTS)
+    assert (summary["runs"] == 2).all()
+
+
+def test_spike_survival_threshold_matches_the_smoother():
+    """The closed form must agree with what the EMA actually does."""
+    from vayeron.control_limits import ScoringConfig, score_run
+    from vayeron.label_audit import survival_threshold
+
+    span = 11.5
+    t = survival_threshold(span)
+    assert t["min_severity_to_cross"] == pytest.approx(6.25, rel=1e-3)
+
+    # Drive a real record with a lone spike either side of the predicted bound.
+    n = 300
+    ts = pd.date_range("2026-01-01", periods=n, freq="626s")
+    rng = np.random.default_rng(11)
+    for factor, should_alert in ((0.5, False), (2.0, True)):
+        df = pd.DataFrame({
+            "timestamp": ts,
+            "rpm": np.full(n, 600.0),
+            "rms": 50.0 + rng.normal(0, 1.0, n),
+        })
+        mad = float(np.median(np.abs(df["rms"] - df["rms"].median())))
+        df.loc[150, "rms"] += factor * t["min_severity_to_cross"] * 3.5 * mad * 1.4826
+        scored, _ = score_run(df, ScoringConfig(healthy_window_ratio=0.3),
+                              channels=["rms"])
+        assert bool(scored.loc[150:165, "is_anomaly"].any()) is should_alert
+
+
+def test_knock_sweep_shows_a_threshold_not_a_slope():
+    """Small knocks must corrupt nothing; large ones must corrupt the labels."""
+    from vayeron.label_audit import knock_threshold_sweep
+
+    df = knock_threshold_sweep(knock_gains=(6, 45))
+    small, large = df.iloc[0], df.iloc[1]
+    assert small["knock_driven_alert_rows"] == 0
+    assert large["share_of_alert_class"] > 0.3

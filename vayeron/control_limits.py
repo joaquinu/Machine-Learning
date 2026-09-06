@@ -101,6 +101,17 @@ class ScoringConfig:
     # as a drift-resistant alternative. Default stays at the delivered spec.
     aggregation: str = "max"
     aggregation_k: int = 2
+    # KX-VAY-012 smooths the score but attributes fault_channel from the
+    # *instantaneous* per-channel severity. For an amplitude-modulated defect
+    # (inner race, ball spin) the correct channel leads by only ~1.5x, which
+    # per-snapshot noise swamps, so the attribution is a coin flip while the
+    # score it accompanies is stable. Attributing from the same smoothed
+    # severity the score uses removes that inconsistency - but measured over
+    # the surrogate campaign it did not improve attribution at all, because the
+    # ordering problem is a baseline-dispersion effect, not a noise effect
+    # (see reports/FINDINGS.md section 6). Kept as an option; not recommended
+    # on this evidence.
+    attribute_from_smoothed: bool = False
 
     # --- numerical guards -------------------------------------------------
     mad_floor_relative: float = 1e-6  # numerical guard: floor MAD at this fraction of |median|
@@ -396,7 +407,13 @@ def score_run(
     )
     out["is_anomaly"] = (y >= TIER_EDGES[1]).astype(int)
 
-    driver = out[severity_cols].idxmax(axis=1).astype("object")
+    if cfg.attribute_from_smoothed:
+        span = ema_span if ema_span else max(cfg.ema_tau_hours, 1.0)
+        attribution_source = out[severity_cols].ewm(span=span, adjust=False,
+                                                    ignore_na=True).mean()
+    else:
+        attribution_source = out[severity_cols]
+    driver = attribution_source.idxmax(axis=1).astype("object")
     driver = driver.where(driver.isna(), driver.str.replace("severity_", "", regex=False))
     driver[~valid] = "none"
     driver[y < TIER_EDGES[0]] = "none"
