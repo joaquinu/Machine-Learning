@@ -1,0 +1,163 @@
+{
+  "scoring": {
+    "baselines": {
+      "rms": {
+        "channel": "rms",
+        "source_column": "rms_norm",
+        "median": 0.5010446249293503,
+        "mad": 0.017872242593122756,
+        "sigma_equivalent": 0.026497386868563795,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "bpfo": {
+        "channel": "bpfo",
+        "source_column": "bpfo",
+        "median": 2.024403811082893,
+        "mad": 0.5186445782113992,
+        "sigma_equivalent": 0.7689424516562204,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "bpfi": {
+        "channel": "bpfi",
+        "source_column": "bpfi",
+        "median": 1.7329699570272397,
+        "mad": 0.26073673617605775,
+        "sigma_equivalent": 0.3865682850546232,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "bsf": {
+        "channel": "bsf",
+        "source_column": "bsf",
+        "median": 1.7812731709983094,
+        "mad": 0.4357139973051365,
+        "sigma_equivalent": 0.6459895724045953,
+        "mad_floored": false,
+        "n_samples": 36
+      },
+      "ftf": {
+        "channel": "ftf",
+        "source_column": "ftf",
+        "median": 1.623663088762025,
+        "mad": 0.2557839256826594,
+        "sigma_equivalent": 0.3792252482171108,
+        "mad_floored": false,
+        "n_samples": 36
+      }
+    },
+    "healthy_rows": 36,
+    "healthy_span_hours": 5.833333333333333,
+    "total_rows": 240,
+    "gated_rows": 0,
+    "median_cadence_seconds": 600.0000000000002,
+    "cadence_cv": 1.1274665894846632e-14,
+    "ema_mode": "span",
+    "ema_span_samples": 11.999999999999995,
+    "channels_scored": [
+      "rms",
+      "bpfo",
+      "bpfi",
+      "bsf",
+      "ftf"
+    ]
+  },
+  "lead_time": {
+    "failure_index": 234,
+    "failure_timestamp": "2026-05-02 15:00:00",
+    "failure_elapsed_hours": 39.0,
+    "total_acquisitions": 240,
+    "persistence_samples": 3,
+    "crossings": [
+      {
+        "tier": "watch",
+        "threshold": 0.35,
+        "crossed": true,
+        "index": 37,
+        "timestamp": "2026-05-01 06:10:00",
+        "elapsed_hours": 6.166666666666667,
+        "lead_time_hours": 32.833333333333336,
+        "lead_time_life_fraction": 0.8418803418803419,
+        "driving_channel": "rms",
+        "terminal_index": 168,
+        "terminal_elapsed_hours": 28.0,
+        "terminal_lead_time_hours": 11.0,
+        "terminal_driving_channel": "bpfo",
+        "prior_episodes": 2,
+        "prior_episode_hours": 2.0
+      },
+      {
+        "tier": "alert",
+        "threshold": 0.5,
+        "crossed": true,
+        "index": 61,
+        "timestamp": "2026-05-01 10:10:00",
+        "elapsed_hours": 10.166666666666666,
+        "lead_time_hours": 28.833333333333336,
+        "lead_time_life_fraction": 0.7393162393162394,
+        "driving_channel": "rms",
+        "terminal_index": 173,
+        "terminal_elapsed_hours": 28.833333333333332,
+        "terminal_lead_time_hours": 10.166666666666668,
+        "terminal_driving_channel": "bpfo",
+        "prior_episodes": 1,
+        "prior_episode_hours": 0.5
+      },
+      {
+        "tier": "critical",
+        "threshold": 0.8,
+        "crossed": true,
+        "index": 180,
+        "timestamp": "2026-05-02 06:00:00",
+        "elapsed_hours": 30.0,
+        "lead_time_hours": 9.0,
+        "lead_time_life_fraction": 0.23076923076923078,
+        "driving_channel": "rms",
+        "terminal_index": 198,
+        "terminal_elapsed_hours": 33.0,
+        "terminal_lead_time_hours": 6.0,
+        "terminal_driving_channel": "rms",
+        "prior_episodes": 1,
+        "prior_episode_hours": 1.5
+      }
+    ],
+    "peak_score": 0.9999999805263763,
+    "peak_score_hours_to_failure": 0.0,
+    "tier_shares": {
+      "normal": 0.65,
+      "watch": 0.05,
+      "alert": 0.0875,
+      "critical": 0.2125
+    },
+    "ground_truth": {
+      "onset_index": 132,
+      "onset_elapsed_hours": 22.0,
+      "detection_delay_hours": 6.833333333333332,
+      "false_alarm_hours_before_onset": 0.666666666666667
+    }
+  },
+  "config": {
+    "alert_limits": "{'rms': 3.5, 'bpfo': 4.0, 'bpfi': 4.0, 'bsf': 4.0, 'ftf': 4.0}",
+    "healthy_window_ratio": "0.15",
+    "healthy_window_hours": "None",
+    "healthy_mask_column": "None",
+    "min_healthy_samples": "30",
+    "rpm_gate": "(1500.0, 2000.0)",
+    "drop_zero_rms": "True",
+    "normalize_rms_by_rpm": "True",
+    "rpm_reference": "1770.0",
+    "ema_tau_hours": "2.0",
+    "ema_mode": "span",
+    "irregular_cadence_cv": "0.25",
+    "logistic_gain": "3.0",
+    "logistic_center": "1.0",
+    "clip_negative_severity": "False",
+    "aggregation": "max",
+    "aggregation_k": "2",
+    "mad_floor_relative": "1e-06",
+    "mad_floor_absolute": "1e-12",
+    "min_mad_fraction_of_median": "0.0",
+    "persistence_samples": "3"
+  }
+}
