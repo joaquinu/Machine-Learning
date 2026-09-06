@@ -31,14 +31,25 @@ from .features import VAYERON_DEFECT_ORDERS
 #                inner-race defect passes through the load zone once per shaft
 #                revolution; a rolling-element defect is modulated at cage rate.
 #   channel    - the channel the scorer should attribute the fault to
+#   asymmetry_c - end-to-end temperature divergence at full damage, in C. A
+#                 localised spall raises both raceways much alike; it is
+#                 lubrication and seal failures that run one end hot. Coupling
+#                 asymmetry to damage in every mode would let a thermal channel
+#                 "detect" faults it has no physical claim on.
 FAULT_MODES: dict[str, dict] = {
-    "outer_race": {"order": VAYERON_DEFECT_ORDERS["bpfo"], "modulation": 0.0, "channel": "bpfo"},
-    "inner_race": {"order": VAYERON_DEFECT_ORDERS["bpfi"], "modulation": 1.0, "channel": "bpfi"},
-    "ball_spin": {"order": VAYERON_DEFECT_ORDERS["bsf"], "modulation": 0.4, "channel": "bsf"},
-    "cage": {"order": VAYERON_DEFECT_ORDERS["ftf"], "modulation": 0.0, "channel": "ftf"},
+    "outer_race": {"order": VAYERON_DEFECT_ORDERS["bpfo"], "modulation": 0.0,
+                   "channel": "bpfo", "asymmetry_c": 0.8},
+    "inner_race": {"order": VAYERON_DEFECT_ORDERS["bpfi"], "modulation": 1.0,
+                   "channel": "bpfi", "asymmetry_c": 0.8},
+    "ball_spin": {"order": VAYERON_DEFECT_ORDERS["bsf"], "modulation": 0.4,
+                  "channel": "bsf", "asymmetry_c": 0.8},
+    "cage": {"order": VAYERON_DEFECT_ORDERS["ftf"], "modulation": 0.0,
+             "channel": "ftf", "asymmetry_c": 1.2},
     # Grease dry-out / seal failure: friction and heat, no localised spall, so
-    # no defect line at all. The spectral limits have nothing to bite on.
-    "thermal": {"order": None, "modulation": 0.0, "channel": "rms"},
+    # no defect line at all. The spectral limits have nothing to bite on, and
+    # this is the mode that genuinely runs one end hot.
+    "thermal": {"order": None, "modulation": 0.0, "channel": "rms",
+                "asymmetry_c": 7.0},
 }
 
 
@@ -60,7 +71,7 @@ class SurrogateConfig:
     late_smearing: float = 0.35             # jitter fraction at end of life
     temp_ambient_c: float = 32.0
     temp_final_c: float = 88.0
-    temp_asymmetry_c: float = 6.0           # driven end runs hotter once damaged
+    temp_asymmetry_c: float | None = None   # None -> taken from fault_mode
     # Healthy-phase realism. A real rig is not stationary to four decimal
     # places: belt/coupling load wanders, the housing warms, and the odd
     # acquisition catches a transient. Without these the healthy MAD collapses
@@ -148,6 +159,8 @@ def generate_run(cfg: SurrogateConfig | None = None,
     ambient = cfg.temp_ambient_c + _ou_walk(
         cfg.n_acquisitions, cfg.load_wander_tau_acq, cfg.ambient_drift_c, rng)
     knock = np.where(rng.random(cfg.n_acquisitions) < cfg.transient_rate, cfg.transient_gain, 1.0)
+    asymmetry_c = (cfg.temp_asymmetry_c if cfg.temp_asymmetry_c is not None
+                   else FAULT_MODES[cfg.fault_mode]["asymmetry_c"])
 
     meta, waves = [], []
     for i in range(cfg.n_acquisitions):
@@ -159,7 +172,7 @@ def generate_run(cfg: SurrogateConfig | None = None,
             "timestamp": t0 + pd.Timedelta(seconds=i * cfg.acquisition_interval_s),
             "acquisition": i,
             "rpm": cfg.rpm + rng.normal(0.0, 2.0),
-            "temp1": base_temp + cfg.temp_asymmetry_c * damage + rng.normal(0, 0.25),
+            "temp1": base_temp + asymmetry_c * damage + rng.normal(0, 0.25),
             "temp2": base_temp + rng.normal(0, 0.25),
             "life_fraction": frac,
             "true_damage": damage,

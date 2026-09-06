@@ -11,6 +11,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from dataclasses import replace  # noqa: E402
+
 from vayeron.control_limits import (  # noqa: E402
     TIER_EDGES,
     VAYERON_ALERT_LIMITS,
@@ -286,14 +288,15 @@ def test_thermal_mode_has_no_defect_line_but_does_heat_up():
 
 
 def test_campaign_runs_and_reports_every_combination():
-    from vayeron.campaign import VARIANTS, run, summarise
+    from vayeron.campaign import FEATURE_VARIANTS, VARIANTS, run, summarise
 
     df = run(fault_modes=["outer_race"], seeds=[1, 2], progress=False)
-    assert len(df) == 2 * len(VARIANTS)
+    assert len(df) == 2 * len(VARIANTS) * len(FEATURE_VARIANTS)
     assert df["detected"].all()
     assert set(df["variant"]) == set(VARIANTS)
+    assert set(df["features"]) == set(FEATURE_VARIANTS)
     summary = summarise(df)
-    assert len(summary) == len(VARIANTS)
+    assert len(summary) == len(VARIANTS) * len(FEATURE_VARIANTS)
     assert (summary["runs"] == 2).all()
 
 
@@ -331,3 +334,71 @@ def test_knock_sweep_shows_a_threshold_not_a_slope():
     small, large = df.iloc[0], df.iloc[1]
     assert small["knock_driven_alert_rows"] == 0
     assert large["share_of_alert_class"] > 0.3
+
+
+# --- attribution and thermal channels ----------------------------------------
+
+def test_spectral_priority_prefers_a_defect_line_over_broadband_rms():
+    """rms baseline dispersion is far tighter than the spectral channels', so a
+    plain argmax over severity favours it structurally. spectral_priority hands
+    the attribution back to whichever defect line is genuinely above its limit."""
+    n = 300
+    ts = pd.date_range("2026-01-01", periods=n, freq="10min")
+    rng = np.random.default_rng(5)
+    df = pd.DataFrame({
+        "timestamp": ts,
+        "rpm": np.full(n, 600.0),
+        "rms": 50.0 + rng.normal(0, 0.05, n),      # very tight baseline
+        "bpfi": 2.0 + rng.normal(0, 0.40, n),      # loose, as spectral ratios are
+    })
+    df.loc[200:, "rms"] += 0.6      # small absolute rise, huge in its own sigmas
+    df.loc[200:, "bpfi"] += 3.0     # a real inner-race excursion
+
+    cfg = ScoringConfig(healthy_window_ratio=0.4)
+    spec, _ = score_run(df, cfg, channels=["rms", "bpfi"])
+    prio, _ = score_run(df, replace(cfg, attribution="spectral_priority"),
+                        channels=["rms", "bpfi"])
+    assert spec["fault_channel"].tail(50).mode().iat[0] == "rms"
+    assert prio["fault_channel"].tail(50).mode().iat[0] == "bpfi"
+
+
+def test_thermal_asymmetry_uses_the_absolute_four_degree_threshold():
+    n = 200
+    ts = pd.date_range("2026-01-01", periods=n, freq="10min")
+    rng = np.random.default_rng(6)
+    df = pd.DataFrame({
+        "timestamp": ts,
+        "rpm": np.full(n, 600.0),
+        "rms": 50.0 + rng.normal(0, 1.0, n),
+        "temp1": 40.0 + rng.normal(0, 0.1, n),
+        "temp2": 40.0 + rng.normal(0, 0.1, n),
+    })
+    df.loc[150:, "temp1"] += 5.0  # one end runs 5 C hot: section 6.2 anomaly
+
+    cfg = ScoringConfig(healthy_window_ratio=0.5, thermal_channels=("temp_asymmetry",))
+    scored, _ = score_run(df, cfg)
+    assert scored.loc[170:, "severity_temp_asymmetry"].median() > 1.0
+    assert scored.loc[170:, "is_anomaly"].mean() > 0.9
+    assert scored.loc[170:, "fault_channel"].mode().iat[0] == "temp_asymmetry"
+
+
+def test_absolute_temperature_channel_chases_ambient_drift():
+    """Why temp_max is offered but not recommended: a seasonal swing with both
+    ends warming together is explicitly not an anomaly (section 6.1 item 3),
+    but an absolute-temperature channel cannot tell it from a fault."""
+    n = 400
+    ts = pd.date_range("2026-01-01", periods=n, freq="10min")
+    rng = np.random.default_rng(7)
+    seasonal = np.linspace(0.0, 9.0, n)  # both raceways warm equally
+    df = pd.DataFrame({
+        "timestamp": ts,
+        "rpm": np.full(n, 600.0),
+        "rms": 50.0 + rng.normal(0, 1.0, n),
+        "temp1": 34.0 + seasonal + rng.normal(0, 0.2, n),
+        "temp2": 34.0 + seasonal + rng.normal(0, 0.2, n),
+    })
+    cfg = ScoringConfig(healthy_window_ratio=0.15)
+    asym, _ = score_run(df, replace(cfg, thermal_channels=("temp_asymmetry",)))
+    both, _ = score_run(df, replace(cfg, thermal_channels=("temp_max", "temp_asymmetry")))
+    assert asym["is_anomaly"].mean() < 0.02      # ambient-invariant
+    assert both["is_anomaly"].tail(100).mean() > 0.9  # chases the season

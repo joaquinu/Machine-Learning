@@ -217,30 +217,40 @@ RMS by construction, and the 3.5-vs-4.0 limit split offsets only a fraction of
 it. A modulated defect at half contrast loses the argmax to broadband RMS even
 while its own line is genuinely elevated.
 
-Two fixes suggested themselves and **both were tested and both failed**:
+Four fixes were tried. **One helps, three do not.**
 
-- *Attribute from the smoothed severity* rather than the instantaneous value —
-  the score is smoothed but `fault_channel` is not, which looked like an
-  inconsistency worth closing. No effect at all on attribution (`inner_race`
-  stayed at 1/6). The ordering problem is dispersion, not noise. The option
-  survives in `ScoringConfig` marked not-recommended.
-- *Attribute at the first crossing* instead of the terminal one, on the theory
-  that the defect signature is most specific when it first emerges. Worse
-  everywhere: 1/6 for `outer_race` against 6/6 at the terminal crossing, because
-  early crossings are frequently drift or knock episodes, which are themselves
-  `rms`-driven. `thermal` scores 6/6 here only because its true driver is also
-  `rms`.
+*Works, partially* — **attribute to a defect line ahead of broadband RMS**
+(`--attribution spectral_priority`). If any spectral channel is above its own
+control limit, `fault_channel` names the highest of those; only if none is does
+it fall back to `rms`. This is how an analyst reads a spectrum: RMS says
+something is wrong, a defect line says what. On the modulated modes it took
+attribution from 6/24 to **12/24** — and the paired comparison is the reassuring
+part: **5 cases fixed, 0 broken** (McNemar exact p = 0.0625). It never regresses
+a case it previously got right, and it costs nothing in lead time. It does cost
+one case on the thermal mode, correctly: there the true driver *is* broadband.
 
-So: detection is sound, attribution is not, the mechanism is identified, and no
-validated fix exists yet. The candidate worth trying next is a sideband-aware
-ratio — peak over `f_defect ± shaft rate` for BPFI and `f_defect ± cage rate`
-for BSF — which attacks the contrast half of the problem directly. That is a
-change to what the firmware computes, so it needs Vayeron in the room.
+Still a coin flip on the faults that matter, so this is a mitigation, not a fix.
 
-This bears on KX-VAY-014, which reports `bpfi` attributed to 1,420 of ~4,900
-alerts and keeps the four spectral channels on domain grounds. If inner-race
-attribution is as fragile on real data as it is here, that count is measuring
-something less specific than it appears.
+*Does not work* — **sideband-aware ratios** (`--sidebands`). The obvious attack
+on the contrast half: recombine the energy that modulation split into sidebands
+at `f_defect ± shaft rate` (BPFI) and `± cage rate` (BSF). Measured on the
+surrogate, the ±1 sidebands do carry real energy (~1.9x the noise floor against
+a 2.5x centre line) and ±2 carry none, so the family was capped at ±1 and
+summed rather than averaged. It made no difference: **2 fixed, 2 broken,
+p = 1.0**, and it cost ~0.3 h of lead time. The option stays because on real
+data the sideband structure is physical rather than modelled, and that is worth
+one check — but on this evidence it is not the answer.
+
+*Does not work* — **attribute from the smoothed severity** rather than the
+instantaneous value. The score is smoothed and `fault_channel` is not, which
+looked like an inconsistency worth closing. No effect at all (`inner_race`
+stayed at 1/6). The ordering problem is dispersion, not noise.
+
+*Does not work* — **attribute at the first crossing** instead of the terminal
+one, on the theory that a defect signature is most specific when it first
+emerges. Worse everywhere: 1/6 for `outer_race` against 6/6 at the terminal
+crossing, because early crossings are frequently drift or knock episodes, which
+are themselves `rms`-driven.
 
 **The thermal mode is the one to treat with suspicion.** It was detected 6/6 —
 but through `rms`, never through temperature, because `Y` does not consume
@@ -256,7 +266,51 @@ any detector to find. Whether a real rolling-element defect is that weak is a
 physics question this surrogate cannot settle — check it on the archive before
 concluding anything about BSF.
 
-## 7. Reading this across to the business question
+## 7. Y has no thermal term. It should have exactly one.
+
+The Smart-Idler datasheet specifies a dedicated **Temp Alert** byte and
+independent left/right raceway monitoring. KX-VAY-012 section 6.2 calls a >4 °C
+end-to-end divergence under steady speed an anomaly in its own right. Yet `Y` as
+constructed consumes five vibration channels and no thermal one — `temp1` and
+`temp2` reach the models only as input features, never as evidence in the label.
+A grease dry-out or seal failure that ran hot without a vibration signature
+would score `normal` all the way to seizure.
+
+Two thermal channels are now available. The evidence says take one and refuse
+the other.
+
+**Refuse `temp_max` (the hotter raceway).** Section 6.1 item 3 already rules out
+seasonal drift as an anomaly — "both bearing ends cool equally" — and an
+absolute-temperature channel cannot tell that from a fault. Scored against the
+field-shaped surrogate, which carries the record's real 43.6 → 34.4 °C seasonal
+swing:
+
+| baseline fitted | none (as delivered) | + asymmetry | + `temp_max` |
+|---|---|---|---|
+| first 10%, warm start | 1.54% alert | 1.54% | 1.54% |
+| coolest 10%, commissioned in winter | 0.32% alert | 0.34% | **71.21%** |
+
+A sensor commissioned in a cool period spends most of its life flagged, with
+57,571 rows attributed to `temp_max`. This is not a tuning problem; absolute
+temperature is the wrong quantity.
+
+**Take `temp_asymmetry` (|T₁ − T₂|).** Ambient-invariant by construction, which
+is precisely why the datasheet monitors both ends separately. It moved the
+field-surrogate alert rate by 0.02 percentage points under the adverse baseline.
+It carries section 6.2's absolute threshold as well as a statistical one: a 4 °C
+divergence sits at severity 1.0 however tight the fitted baseline happens to be.
+
+**What the surrogate cannot tell you.** Enabling asymmetry changed terminal lead
+time by under 0.2 h on every mode and left attribution unchanged except on the
+thermal mode. That is not evidence against it — my surrogate always couples heat
+to broadband noise, so the very failure class the channel exists for (hot, quiet)
+is one it cannot represent. What the surrogate *can* confirm is that the channel
+is well-behaved: after correcting the model so that only lubrication failures
+run one end hot, `temp_asymmetry` never claimed attribution on a spall mode, and
+claimed it on 2 of 6 thermal runs. The case for enabling it rests on the
+datasheet and section 6.2, not on a measured lead-time gain.
+
+## 8. Reading this across to the business question
 
 11 h of warning on a ~39 h accelerated test is **28% of total life** (median
 over all 60 runs), with the alert landing roughly 40% of the way into the damage
@@ -269,18 +323,16 @@ after.
 That claim is only worth as much as the degradation law behind it, which here is
 modelled. Re-run against the real archive before it goes to the client.
 
-## 8. What to run next, in order
+## 9. What to run next, in order
 
 1. **The real archive**, with the command at the top. Compare terminal lead
    under `--orders vayeron` against `--orders geometry`; the gap quantifies what
    the fielded firmware's fixed multipliers cost on a bearing they were not cut
    for.
-2. **Check inner-race attribution on the archive, then try sideband-aware
-   ratios.** If `fault_channel` collapses to `rms` on a real inner-race fault
-   the way it does on 5 of 6 modelled ones, the single-bin ratio is not enough
-   for a fitter to act on. Two cheaper fixes are already tested and dead
-   (section 6); the sideband ratio is the next candidate and needs Vayeron,
-   since it changes what the firmware computes.
+2. **Check inner-race attribution on the archive.** Four fixes are now tested
+   (section 6): `spectral_priority` halves the problem, sidebands and the other
+   two do nothing. Whether the residual holds on a real inner-race fault decides
+   whether this needs Vayeron in the room or is good enough to ship.
 3. **Run the label audit on `vayeron_anomaly_dataset.csv`.** One command, and it
    settles whether the spike-through-EMA defect touches the field labels at all
    — the threshold is ~22 sigma and the field's knock distribution decides it.

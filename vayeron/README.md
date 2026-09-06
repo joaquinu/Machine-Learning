@@ -23,7 +23,7 @@ equation, not a confirmed mechanical failure. Scoring an external record that
 | `campaign.py` | multi-seed x multi-fault-mode sweep over the surrogate |
 | `label_audit.py` | how much of an existing `alert` class is EMA-smeared knocks |
 | `cli.py` | `python -m vayeron.cli` |
-| `tests/` | 23 unit tests, `python -m pytest vayeron/tests` |
+| `tests/` | 26 unit tests, `python -m pytest vayeron/tests` |
 
 ## Running it against the real archive
 
@@ -104,4 +104,7 @@ unless asked for:
 | `--prefilter-median N` | median filter on raw severity before the EMA | a single-sample knock survives the 2 h EMA — the smoother spreads it over ~span samples, so it clears a "3 consecutive samples" persistence rule and registers as a genuine alert episode |
 | `--min-mad-fraction F` | floors the baseline MAD at `F x median` | a lab rig's healthy phase can be stationary to a fraction of a percent, which makes 3.5 sigma trip on a ~1% change |
 | `--aggregation kth_max` | the k-th highest channel drives severity, not the highest | section 6.2 calls a real anomaly a *coherent multi-channel* excursion; section 7 aggregates with `max`, which one drifting channel can carry alone |
+| `--attribution spectral_priority` | a defect line above its own limit outranks broadband `rms` for `fault_channel` | `rms` baseline dispersion is 4-7x tighter than the spectral channels', so a plain argmax over severity favours it structurally. Fixed 5 modulated-fault attributions and broke none |
+| `--thermal asymmetry` | folds \|T1-T2\| into Y | the datasheet has a Temp Alert byte and section 6.2 calls a >4 C divergence an anomaly; Y as delivered has no thermal term at all. Ambient-invariant, unlike absolute temperature |
+| `--sidebands` | recombines the +/-1 modulation sidebands into each defect ratio | tested and gave no attribution benefit (2 fixed / 2 broken). Kept for checking against real data |
 | `--ema-mode time` | `alpha = 1 - exp(-dt/tau)` instead of a fixed span | correct when the acquisition cadence is irregular; a warning fires when it is |

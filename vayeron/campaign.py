@@ -24,21 +24,37 @@ from .mendeley import failure_index
 from .report import attach_ground_truth, lead_time_analysis
 from .synthetic import FAULT_MODES, SurrogateConfig, generate_run
 
+# Scoring variants, each a delta on the base config. Feature variants (below)
+# are crossed with these.
 VARIANTS: dict[str, dict] = {
     "spec": {},                                    # KX-VAY-012 as written
     "prefilter": {"prefilter_median_samples": 3},  # median filter ahead of the EMA
+    "prefilter+specattr": {"prefilter_median_samples": 3,
+                           "attribution": "spectral_priority"},
+}
+
+# Feature variants: what the edge computes. "single_bin" is the Smart-Idler
+# firmware's Goertzel ratio; "sideband" recombines the +/-1 modulation
+# sidebands that a rotating defect splits its energy into.
+FEATURE_VARIANTS: dict[str, dict] = {
+    "single_bin": {},
+    "sideband": {"use_sidebands": True},
 }
 
 
-def _extract(scfg: SurrogateConfig) -> pd.DataFrame:
+def _extract(scfg: SurrogateConfig) -> dict[str, pd.DataFrame]:
+    """One waveform pass, one feature table per feature variant."""
     meta, waves = generate_run(scfg)
-    fcfg = FeatureConfig(fs=scfg.fs, rpm=scfg.rpm)
-    rows = []
+    configs = {name: FeatureConfig(fs=scfg.fs, rpm=scfg.rpm, **kw)
+               for name, kw in FEATURE_VARIANTS.items()}
+    rows: dict[str, list[dict]] = {name: [] for name in configs}
     for (_, row), wave in zip(meta.iterrows(), waves):
-        rec = row.to_dict()
-        rec.update(waveform_features(wave, fcfg))
-        rows.append(rec)
-    return pd.DataFrame(rows)
+        base = row.to_dict()
+        for name, fcfg in configs.items():
+            rec = dict(base)
+            rec.update(waveform_features(wave, fcfg))
+            rows[name].append(rec)
+    return {name: pd.DataFrame(r) for name, r in rows.items()}
 
 
 def run(
@@ -58,39 +74,43 @@ def run(
         expected = FAULT_MODES[mode]["channel"]
         for seed in seeds:
             scfg = SurrogateConfig(fault_mode=mode, seed=seed)
-            features = _extract(scfg)
-            fail_idx = failure_index(features)
-            for variant, overrides in VARIANTS.items():
-                cfg = replace(base, **overrides)
-                scored, _ = score_run(features, cfg)
-                lead = attach_ground_truth(scored, lead_time_analysis(scored, fail_idx, cfg))
-                alert = next(c for c in lead.crossings if c.tier == "alert")
-                g = lead.ground_truth
-                rows.append({
-                    "fault_mode": mode,
-                    "expected_channel": expected,
-                    "seed": seed,
-                    "variant": variant,
-                    "life_hours": float(scored["elapsed_hours"].iloc[fail_idx]),
-                    "detected": bool(alert.crossed and alert.terminal_index is not None),
-                    "first_alert_lead_h": alert.lead_time_hours,
-                    "terminal_alert_lead_h": alert.terminal_lead_time_hours,
-                    "terminal_life_fraction": (
-                        alert.terminal_lead_time_hours / scored["elapsed_hours"].iloc[fail_idx]
-                        if alert.terminal_lead_time_hours is not None else None),
-                    "first_driver": alert.driving_channel,
-                    "first_driver_correct": alert.driving_channel == expected,
-                    "terminal_driver": alert.terminal_driving_channel,
-                    "driver_correct": alert.terminal_driving_channel == expected,
-                    "recovering_episodes": alert.prior_episodes,
-                    "false_alarm_h_pre_onset": g.false_alarm_hours_before_onset if g else None,
-                    "detection_delay_after_onset_h": g.detection_delay_hours if g else None,
-                    "peak_score": lead.peak_score,
-                })
+            feature_sets = _extract(scfg)
+            for feature_variant, features in feature_sets.items():
+                fail_idx = failure_index(features)
+                for variant, overrides in VARIANTS.items():
+                    cfg = replace(base, **overrides)
+                    scored, _ = score_run(features, cfg)
+                    lead = attach_ground_truth(
+                        scored, lead_time_analysis(scored, fail_idx, cfg))
+                    alert = next(c for c in lead.crossings if c.tier == "alert")
+                    g = lead.ground_truth
+                    rows.append({
+                        "fault_mode": mode,
+                        "expected_channel": expected,
+                        "seed": seed,
+                        "features": feature_variant,
+                        "variant": variant,
+                        "life_hours": float(scored["elapsed_hours"].iloc[fail_idx]),
+                        "detected": bool(alert.crossed and alert.terminal_index is not None),
+                        "first_alert_lead_h": alert.lead_time_hours,
+                        "terminal_alert_lead_h": alert.terminal_lead_time_hours,
+                        "terminal_life_fraction": (
+                            alert.terminal_lead_time_hours
+                            / scored["elapsed_hours"].iloc[fail_idx]
+                            if alert.terminal_lead_time_hours is not None else None),
+                        "first_driver": alert.driving_channel,
+                        "first_driver_correct": alert.driving_channel == expected,
+                        "terminal_driver": alert.terminal_driving_channel,
+                        "driver_correct": alert.terminal_driving_channel == expected,
+                        "recovering_episodes": alert.prior_episodes,
+                        "false_alarm_h_pre_onset": g.false_alarm_hours_before_onset if g else None,
+                        "detection_delay_after_onset_h": g.detection_delay_hours if g else None,
+                        "peak_score": lead.peak_score,
+                    })
             if progress:
-                last = rows[-1]
-                print(f"  {mode:11s} seed={seed}  terminal_lead="
-                      f"{last['terminal_alert_lead_h']}  driver={last['terminal_driver']}",
+                tail = rows[-len(VARIANTS) * len(FEATURE_VARIANTS):]
+                ok = sum(r["driver_correct"] for r in tail)
+                print(f"  {mode:11s} seed={seed}  attribution {ok}/{len(tail)} correct",
                       flush=True)
     return pd.DataFrame(rows)
 
@@ -113,7 +133,7 @@ def summarise(df: pd.DataFrame) -> pd.DataFrame:
             "false_alarm_h_max": fa.max() if not fa.empty else np.nan,
         })
 
-    return df.groupby(["fault_mode", "variant"], sort=False).apply(
+    return df.groupby(["fault_mode", "features", "variant"], sort=False).apply(
         agg, include_groups=False).reset_index()
 
 
@@ -123,8 +143,8 @@ def render_markdown(df: pd.DataFrame, summary: pd.DataFrame) -> str:
     lines = [
         "# Multi-seed surrogate campaign",
         "",
-        f"{modes} modelled failure modes x {n_seeds} seeds x {len(VARIANTS)} scoring variants "
-        f"= {len(df)} scored runs. **All data is modelled**; this measures how much the "
+        f"{modes} modelled failure modes x {n_seeds} seeds x {len(FEATURE_VARIANTS)} feature "
+        f"variants x {len(VARIANTS)} scoring variants = {len(df)} scored runs. **All data is modelled**; this measures how much the "
         "surrogate's lead-time claim depends on the seed and the fault mode, not how a "
         "physical bearing behaves.",
         "",
@@ -144,9 +164,9 @@ def render_markdown(df: pd.DataFrame, summary: pd.DataFrame) -> str:
         fa = ("-" if not np.isfinite(r["false_alarm_h_median"])
               else f"{r['false_alarm_h_median']:.2f} (max {r['false_alarm_h_max']:.2f})")
         lines.append(
-            f"| `{r['fault_mode']}` | {r['variant']} | {int(r['detected'])}/{int(r['runs'])} | "
-            f"{int(r['first_driver_correct'])}/{int(r['runs'])} | "
-            f"{int(r['driver_correct'])}/{int(r['runs'])} | {lead} | {frac} | {fa} |")
+            f"| `{r['fault_mode']}` | {r['features']} | {r['variant']} | "
+            f"{int(r['detected'])}/{int(r['runs'])} | "
+            f"{int(r['driver_correct'])}/{int(r['runs'])} | {lead} | {frac} |")
     lines.append("")
     return "\n".join(lines)
 

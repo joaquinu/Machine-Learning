@@ -29,6 +29,22 @@ VAYERON_DEFECT_ORDERS: dict[str, float] = {
 }
 
 
+# Which modulation each defect line carries, in orders of shaft rate. An
+# outer-race defect sits still in the load zone and is unmodulated. An
+# inner-race defect passes through the load zone once per shaft revolution, so
+# its energy splits into sidebands at BPFI +/- 1x. A rolling-element defect is
+# carried round by the cage, so BSF splits at +/- the cage rate. Watching only
+# the centre bin therefore under-reads exactly the faults that are hardest to
+# attribute.
+DEFAULT_CAGE_ORDER = 0.4  # FTF is ~0.38-0.42 for most ball bearings
+SIDEBAND_MODULATION: dict[str, float] = {
+    "bpfo": 0.0,
+    "bpfi": 1.0,                  # shaft rate
+    "bsf": DEFAULT_CAGE_ORDER,    # cage rate
+    "ftf": 0.0,
+}
+
+
 def geometric_defect_orders(
     n_balls: int, ball_diameter: float, pitch_diameter: float, contact_angle_deg: float = 0.0
 ) -> dict[str, float]:
@@ -69,6 +85,18 @@ class FeatureConfig:
     # excluding the peak zone and the zones of the other tracked lines.
     noise_span: float = 0.30
     n_harmonics: int = 1
+    # Sideband-aware ratios. Off by default: KX-VAY-012 and the Smart-Idler
+    # firmware both read a single bin, so this is a proposed change to what is
+    # computed, not a reinterpretation of what exists.
+    use_sidebands: bool = False
+    sideband_modulation: dict[str, float] | None = None
+    # Only +/-1 is worth collecting: measured on the surrogate, the first
+    # sidebands carry ~1.9x the noise floor while the second carry ~1.1x, so
+    # widening the family past +/-1 adds noise and dilutes the statistic.
+    n_sidebands: int = 1
+    # Sidebands are summed, not averaged - the point is to recombine energy the
+    # modulation split apart. Harmonics are still averaged.
+    sideband_aggregation: str = "sum"
 
     def resolved_band(self) -> tuple[float, float]:
         if self.band_hz is not None:
@@ -79,6 +107,26 @@ class FeatureConfig:
     def defect_frequencies(self) -> dict[str, float]:
         shaft_hz = self.rpm / 60.0
         return {k: shaft_hz * v for k, v in self.defect_orders.items()}
+
+    def modulation_frequencies(self) -> dict[str, float]:
+        """Sideband spacing per channel, in Hz. Zero means no sidebands."""
+        if not self.use_sidebands:
+            return {k: 0.0 for k in self.defect_orders}
+        mod = dict(SIDEBAND_MODULATION)
+        if self.sideband_modulation:
+            mod.update(self.sideband_modulation)
+        shaft_hz = self.rpm / 60.0
+        return {k: shaft_hz * mod.get(k, 0.0) for k in self.defect_orders}
+
+    def tracked_lines(self, channel: str) -> list[float]:
+        """Every frequency this channel's ratio should collect energy from."""
+        f0 = self.defect_frequencies()[channel]
+        fmod = self.modulation_frequencies().get(channel, 0.0)
+        offsets = ([0.0] if fmod <= 0
+                   else [m * fmod for m in range(-self.n_sidebands, self.n_sidebands + 1)])
+        return [f0 * h + off
+                for h in range(1, self.n_harmonics + 1)
+                for off in offsets]
 
 
 def bandpass(x: np.ndarray, fs: float, band: tuple[float, float], order: int = 4) -> np.ndarray:
@@ -121,6 +169,7 @@ def envelope_ratios(
         freqs, spec = envelope_spectrum(x, cfg.fs, cfg)
     df = float(freqs[1] - freqs[0]) if freqs.size > 1 else 1.0
     lines = cfg.defect_frequencies()
+    all_tracked = {c: cfg.tracked_lines(c) for c in lines}
 
     ratios: dict[str, float] = {}
     for name, f0 in lines.items():
@@ -131,25 +180,29 @@ def envelope_ratios(
 
         peak = 0.0
         used = 0
-        for h in range(1, cfg.n_harmonics + 1):
-            fh = f0 * h
-            if fh + half >= freqs[-1]:
-                break
+        for fh in all_tracked[name]:
+            if fh <= 0 or fh + half >= freqs[-1]:
+                continue
             peak += _band_peak(freqs, spec, fh, half)
             used += 1
         if used == 0:
             ratios[name] = float("nan")
             continue
-        peak /= used
+        n_sb = len(cfg.tracked_lines(name)) // max(cfg.n_harmonics, 1)
+        if cfg.sideband_aggregation == "sum" and n_sb > 1:
+            peak /= max(used // n_sb, 1)   # average harmonics, sum sidebands
+        else:
+            peak /= used
 
         # Noise floor: median magnitude around the line, with every tracked
-        # line (and its harmonics) excluded so a neighbouring defect does not
-        # inflate the reference.
+        # line of every channel excluded so a neighbouring defect (or one of
+        # its sidebands) does not inflate the reference.
         lo, hi = f0 * (1.0 - cfg.noise_span), f0 * (1.0 + cfg.noise_span)
         sel = (freqs >= lo) & (freqs <= hi)
-        for other in lines.values():
-            for h in range(1, cfg.n_harmonics + 2):
-                fh = other * h
+        for group in all_tracked.values():
+            for fh in group:
+                if fh <= 0:
+                    continue
                 w = cfg.peak_tolerance * fh + cfg.peak_extra_bins * df
                 sel &= ~((freqs >= fh - w) & (freqs <= fh + w))
         floor_vals = spec[sel]

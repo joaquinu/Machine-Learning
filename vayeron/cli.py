@@ -66,6 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
                      help="Vayeron's Factor/10 multipliers, or compute from bearing geometry")
     geo.add_argument("--geometry", type=float, nargs=4, default=None,
                      metavar=("NBALLS", "BALL_D", "PITCH_D", "CONTACT_DEG"))
+    geo.add_argument("--sidebands", action="store_true",
+                     help="recombine the +/-1 modulation sidebands into each defect ratio. "
+                          "Tested on the surrogate campaign: no attribution benefit "
+                          "(2 fixed / 2 broken, p=1.0). Kept for checking against real data, "
+                          "where the sideband structure is physical rather than modelled.")
 
     sc = p.add_argument_group("scoring")
     sc.add_argument("--preset", choices=tuple(PRESETS), default="mendeley")
@@ -85,6 +90,17 @@ def build_parser() -> argparse.ArgumentParser:
                     help="median prefilter width on raw severity, in samples; suppresses "
                          "single-sample knocks that the EMA would otherwise smear into a "
                          "multi-sample alert episode (0 = KX-VAY-012 as written)")
+    sc.add_argument("--attribution", choices=("max_severity", "spectral_priority"),
+                    default="max_severity",
+                    help="how fault_channel picks a driver. 'spectral_priority' prefers a "
+                         "defect line over broadband rms whenever one is above its own limit; "
+                         "on the surrogate it fixed 5 modulated-fault attributions and broke "
+                         "none (p=0.0625).")
+    sc.add_argument("--thermal", choices=("none", "asymmetry", "all"), default="none",
+                    help="fold thermal channels into Y. 'asymmetry' adds |T1-T2| only and is "
+                         "ambient-safe; 'all' also adds the hotter raceway, which chased a "
+                         "seasonal swing to a 71%% alert rate on a field-shaped record and is "
+                         "not recommended.")
     sc.add_argument("--aggregation", choices=("max", "kth_max"), default="max",
                     help="'max' is the KX-VAY-012 spec; 'kth_max' requires k channels to be "
                          "excursing together, which resists single-channel baseline drift")
@@ -129,7 +145,8 @@ def load_features(args) -> tuple[pd.DataFrame, str]:
                                acquisition_interval_s=args.interval)
         meta, waves = generate_run(scfg)
         fcfg = FeatureConfig(fs=scfg.fs, rpm=scfg.rpm, defect_orders=resolve_orders(args),
-                             band_hz=tuple(args.band) if args.band else None)
+                             band_hz=tuple(args.band) if args.band else None,
+                             use_sidebands=args.sidebands)
         rows = []
         for (_, row), wave in zip(meta.iterrows(), waves):
             rec = row.to_dict()
@@ -152,7 +169,8 @@ def load_features(args) -> tuple[pd.DataFrame, str]:
         vibration_column=args.vibration_column,
         max_snapshots=args.max_snapshots,
         defect_orders=resolve_orders(args),
-        feature_overrides={"band_hz": tuple(args.band)} if args.band else {},
+        feature_overrides={**({"band_hz": tuple(args.band)} if args.band else {}),
+                           "use_sidebands": args.sidebands},
     )
     df = build_feature_table(args.data, lcfg, progress=True)
     return df, f"Source: `{args.data}` ({len(df)} acquisitions, {args.rpm:.0f} rpm)."
@@ -180,6 +198,9 @@ def main(argv: list[str] | None = None) -> int:
         normalize_rms_by_rpm=not args.no_rpm_normalisation,
         min_mad_fraction_of_median=args.min_mad_fraction,
         prefilter_median_samples=args.prefilter_median,
+        attribution=args.attribution,
+        thermal_channels={"none": (), "asymmetry": ("temp_asymmetry",),
+                          "all": ("temp_max", "temp_asymmetry")}[args.thermal],
         aggregation=args.aggregation,
         aggregation_k=args.aggregation_k,
         **PRESETS[args.preset],

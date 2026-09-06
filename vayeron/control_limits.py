@@ -41,6 +41,19 @@ VAYERON_ALERT_LIMITS: dict[str, float] = {
 
 SPECTRAL_CHANNELS: tuple[str, ...] = ("bpfo", "bpfi", "bsf", "ftf")
 
+# Y as delivered has no thermal term at all, although the Smart-Idler datasheet
+# specifies a dedicated Temp Alert byte and KX-VAY-012 section 6.2 calls a
+# >4 C end-to-end divergence an anomaly in its own right. These two derived
+# channels close that gap when enabled.
+#   temp_max   - the hotter raceway. Carries real information but is confounded
+#                by ambient: section 6.1 item 3 rules out seasonal drift as an
+#                anomaly, and both ends cool together, so this channel alone
+#                will chase the seasons.
+#   temp_delta - |T1 - T2|. Ambient-invariant by construction, which is exactly
+#                why the datasheet monitors both ends separately.
+THERMAL_CHANNELS: tuple[str, ...] = ("temp_max", "temp_asymmetry")
+THERMAL_ALERT_LIMITS: dict[str, float] = {"temp_max": 3.5, "temp_asymmetry": 3.5}
+
 # KX-VAY-012 section 7 step 5.
 TIER_EDGES: tuple[float, float, float] = (0.35, 0.50, 0.80)
 TIER_NAMES: tuple[str, str, str, str] = ("normal", "watch", "alert", "critical")
@@ -112,6 +125,23 @@ class ScoringConfig:
     # (see reports/FINDINGS.md section 6). Kept as an option; not recommended
     # on this evidence.
     attribute_from_smoothed: bool = False
+    # How fault_channel picks a driver.
+    #   "max_severity"      - KX-VAY-012 as written: argmax over all channels.
+    #   "spectral_priority" - if any spectral channel is above its own control
+    #                         limit, attribute to the highest of those;
+    #                         otherwise fall back to rms. Reflects how an
+    #                         analyst reads it: RMS says something is wrong, a
+    #                         defect line says what. Counteracts the structural
+    #                         bias toward rms, whose baseline dispersion is
+    #                         4-7x tighter than the spectral channels'.
+    attribution: str = "max_severity"
+    # Which thermal channels to fold into S. () reproduces KX-VAY-012, which
+    # has none. ("temp_asymmetry",) is the ambient-robust choice.
+    thermal_channels: tuple[str, ...] = ()
+    # Section 6.2 gives an absolute engineering threshold for asymmetry. When
+    # set, a divergence this large counts as being at the control limit however
+    # tight the statistical baseline is.
+    temp_asymmetry_floor_c: float | None = 4.0
 
     # --- numerical guards -------------------------------------------------
     mad_floor_relative: float = 1e-6  # numerical guard: floor MAD at this fraction of |median|
@@ -127,7 +157,8 @@ class ScoringConfig:
     persistence_samples: int = 3  # consecutive samples required for a crossing
 
     def limits_for(self, columns: Iterable[str]) -> dict[str, float]:
-        return {c: float(self.alert_limits[c]) for c in columns if c in self.alert_limits}
+        merged = {**THERMAL_ALERT_LIMITS, **self.alert_limits}
+        return {c: float(merged[c]) for c in columns if c in merged}
 
 
 @dataclass
@@ -272,7 +303,21 @@ def score_run(
     out["elapsed_hours"] = elapsed
     cadence_s, cadence_cv = _cadence(elapsed)
 
-    requested = list(channels) if channels is not None else list(cfg.alert_limits)
+    requested = list(channels) if channels is not None else [
+        c for c in cfg.alert_limits if c not in THERMAL_CHANNELS]
+
+    # --- derived thermal channels ------------------------------------------
+    if cfg.thermal_channels and {"temp1", "temp2"}.issubset(out.columns):
+        t1 = out["temp1"].astype(float)
+        t2 = out["temp2"].astype(float)
+        out["temp_max"] = np.maximum(t1, t2)
+        out["temp_asymmetry"] = (t1 - t2).abs()
+        for ch in cfg.thermal_channels:
+            if ch not in THERMAL_CHANNELS:
+                raise ValueError(f"unknown thermal channel {ch!r}")
+            requested.append(ch)
+    elif cfg.thermal_channels:
+        raise KeyError("thermal_channels requested but temp1/temp2 are not in the frame")
 
     # --- speed normalisation ------------------------------------------------
     source_columns: dict[str, str] = {}
@@ -341,6 +386,11 @@ def score_run(
         z = (x - med) / (mad * _MAD_TO_SIGMA)
         out[f"z_{ch}"] = z
         sev = z / limits[ch]
+        if ch == "temp_asymmetry" and cfg.temp_asymmetry_floor_c:
+            # Section 6.2 gives an absolute engineering threshold: a >4 C
+            # divergence is an anomaly however tight the statistical baseline
+            # is. Expressed on the same severity scale, |dT| = 4 C is s = 1.0.
+            sev = np.maximum(sev, x / float(cfg.temp_asymmetry_floor_c))
         if cfg.clip_negative_severity:
             sev = np.maximum(sev, 0.0)
         out[f"severity_{ch}"] = sev
@@ -413,7 +463,18 @@ def score_run(
                                                     ignore_na=True).mean()
     else:
         attribution_source = out[severity_cols]
-    driver = attribution_source.idxmax(axis=1).astype("object")
+    if cfg.attribution == "max_severity":
+        driver = attribution_source.idxmax(axis=1).astype("object")
+    elif cfg.attribution == "spectral_priority":
+        spectral = [f"severity_{c}" for c in SPECTRAL_CHANNELS if f"severity_{c}" in severity_cols]
+        driver = attribution_source.idxmax(axis=1).astype("object")
+        if spectral:
+            spec_src = attribution_source[spectral]
+            spec_best = spec_src.idxmax(axis=1).astype("object")
+            spec_above = spec_src.max(axis=1) >= 1.0
+            driver = driver.where(~spec_above, spec_best)
+    else:
+        raise ValueError("attribution must be 'max_severity' or 'spectral_priority'")
     driver = driver.where(driver.isna(), driver.str.replace("severity_", "", regex=False))
     driver[~valid] = "none"
     driver[y < TIER_EDGES[0]] = "none"
