@@ -230,12 +230,27 @@ class FieldSurrogateConfig:
     knock_rate: float = 0.004              # isolated single-sample spikes
     knock_gain: float = 6.0                # in baseline MADs
     transient_rate: float = 0.028          # rms == 0 speed-change artefacts
+    # KX-VAY-012 reports 88.06 / 5.86 / 6.08 normal/watch/alert on the real
+    # export. One 11-day event on one roller cannot produce that: most of the
+    # minority class comes from shorter, milder excursions spread across the
+    # fleet - drift, load changes, partially-developed defects that recover.
+    # These are what the class balance actually rests on. Tuned against those
+    # three figures; as configured the scored record comes out at
+    # 88.07 / 5.82 / 6.11.
+    n_excursions_per_roller: int = 70
+    excursion_hours: tuple[float, float] = (3.0, 40.0)
+    excursion_gain: tuple[float, float] = (1.015, 1.20)
     event_roller: str = "C_RHS"
     event_start_fraction: float = 0.47
     event_days: float = 11.0
     event_rms_gain: float = 1.35           # +35%, per KX-VAY-012 section 6.2
     event_bpfi_gain: float = 1.40          # +40%
     regime_drift: bool = True
+    # Slow condition wander. Excursions ramp through the 0.35-0.50 watch band
+    # too quickly to populate it; in the real export the watch class is mostly
+    # long stretches of mild drift sitting near the boundary.
+    condition_drift: float = 0.07
+    condition_drift_tau: float = 900.0
     seed: int = 20260903
 
 
@@ -271,6 +286,30 @@ def generate_field_record(cfg: FieldSurrogateConfig | None = None,
             "ftf": 1.75 * ftf_w + rng.normal(0, 0.30, n),
         }
 
+        drift = _ou_walk(n, cfg.condition_drift_tau, cfg.condition_drift, rng)
+        rms *= 1 + drift
+        for k in ratios:
+            ratios[k] *= 1 + 2.5 * _ou_walk(n, cfg.condition_drift_tau,
+                                            cfg.condition_drift, rng)
+
+        # Milder excursions across the fleet: the bulk of the minority class.
+        is_excursion = np.zeros(n, dtype=bool)
+        for _ in range(cfg.n_excursions_per_roller):
+            dur = int(rng.uniform(*cfg.excursion_hours) * 3600 / cfg.cadence_seconds)
+            if dur < 3 or dur >= n:
+                continue
+            j0 = int(rng.integers(0, n - dur))
+            shape = np.sin(np.linspace(0, np.pi, dur)) ** 0.7
+            gain = rng.uniform(*cfg.excursion_gain)
+            channel = rng.choice(["rms", "bpfo", "bpfi", "bsf", "ftf"])
+            if channel == "rms":
+                rms[j0:j0 + dur] *= 1 + (gain - 1) * shape
+            else:
+                ratios[channel][j0:j0 + dur] *= 1 + (gain - 1) * 3.0 * shape
+            # Real excursions are coherent across channels, not single-channel.
+            rms[j0:j0 + dur] *= 1 + (gain - 1) * 0.35 * shape
+            is_excursion[j0:j0 + dur] = True
+
         # One sustained, coherent multi-channel event on a single roller.
         is_event = np.zeros(n, dtype=bool)
         if roller == cfg.event_roller:
@@ -284,7 +323,7 @@ def generate_field_record(cfg: FieldSurrogateConfig | None = None,
 
         # Isolated single-sample knocks - the label-noise source under audit.
         knock = rng.random(n) < cfg.knock_rate
-        knock &= ~is_event
+        knock &= ~is_event & ~is_excursion
         rms = np.where(knock, rms * (1 + cfg.knock_gain * 0.035), rms)
         for k in ratios:
             spike = knock & (rng.random(n) < 0.5)
@@ -306,6 +345,7 @@ def generate_field_record(cfg: FieldSurrogateConfig | None = None,
             **ratios,
             "temp1": base_temp + rng.normal(0, 0.2, n),
             "temp2": base_temp + rng.normal(0, 0.2, n),
+            "injected_excursion": is_excursion,
             "injected_knock": knock,
             "injected_transient": transient,
             "injected_event": is_event,

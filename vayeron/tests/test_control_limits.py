@@ -326,14 +326,20 @@ def test_spike_survival_threshold_matches_the_smoother():
         assert bool(scored.loc[150:165, "is_anomaly"].any()) is should_alert
 
 
-def test_knock_sweep_shows_a_threshold_not_a_slope():
-    """Small knocks must corrupt nothing; large ones must corrupt the labels."""
+def test_knock_contamination_grows_with_knock_size():
+    """Bigger knocks take a bigger share of the alert class.
+
+    Against a record whose severity already wanders - which is what a real one
+    does - there is no clean cutoff: a knock landing on elevated ground needs
+    far less than the lone-spike bound in survival_threshold(). The relationship
+    is monotone, and small knocks stay a small fraction of the class."""
     from vayeron.label_audit import knock_threshold_sweep
 
     df = knock_threshold_sweep(knock_gains=(6, 45))
     small, large = df.iloc[0], df.iloc[1]
-    assert small["knock_driven_alert_rows"] == 0
-    assert large["share_of_alert_class"] > 0.3
+    assert small["share_of_alert_class"] < 0.03
+    assert large["share_of_alert_class"] > 3 * small["share_of_alert_class"]
+    assert large["knock_driven_episodes"] > small["knock_driven_episodes"]
 
 
 # --- attribution and thermal channels ----------------------------------------
@@ -402,3 +408,97 @@ def test_absolute_temperature_channel_chases_ambient_drift():
     both, _ = score_run(df, replace(cfg, thermal_channels=("temp_max", "temp_asymmetry")))
     assert asym["is_anomaly"].mean() < 0.02      # ambient-invariant
     assert both["is_anomaly"].tail(100).mean() > 0.9  # chases the season
+
+
+# --- benchmark windows and minority augmentation ------------------------------
+
+def _scored_field_record(rollers=2, rows=3000):
+    from vayeron.control_limits import score_run
+    from vayeron.synthetic import FieldSurrogateConfig, generate_field_record
+
+    d = generate_field_record(FieldSurrogateConfig(rows_per_roller=rows))
+    keep = sorted(d["roller_id"].unique())[:rollers]
+    d = d[d["roller_id"].isin(keep)]
+    return pd.concat([
+        score_run(g.reset_index(drop=True), ScoringConfig())[0].assign(roller_id=r)
+        for r, g in d.groupby("roller_id")
+    ])
+
+
+def test_augmentation_grows_only_the_minority_classes():
+    from vayeron.benchmarks import WindowConfig, build
+
+    scored = _scored_field_record()
+    base = build(scored, WindowConfig(augment_stride=0))
+    aug = build(scored, WindowConfig(augment_stride=1))
+
+    assert aug.counts("train")["normal"] == base.counts("train")["normal"]
+    for tier in ("watch", "alert"):
+        assert aug.counts("train")[tier] > base.counts("train")[tier]
+    # Held-out sets are untouched by augmentation.
+    assert len(aug.y_val) == len(base.y_val)
+    assert len(aug.y_test) == len(base.y_test)
+    np.testing.assert_array_equal(aug.y_test, base.y_test)
+
+
+def test_leak_free_augmentation_shares_no_reading_with_the_held_out_sets():
+    """The whole point of the module. An augmented training window must not
+    contain a single reading that also appears in a validation or test window,
+    or the held-out score is measuring shifted copies of the training data."""
+    from vayeron.benchmarks import WindowConfig, build
+
+    scored = _scored_field_record()
+    cfg = WindowConfig(augment_stride=1)
+    df = scored.sort_values(["roller_id", "timestamp"])
+
+    # Rebuild with a unique per-row marker smuggled in as a feature, so window
+    # membership can be read straight off the tensors.
+    marked = df.copy()
+    marked["operating_angle_deg"] = np.arange(len(marked), dtype=float)
+    features = ("operating_angle_deg",) + tuple(
+        c for c in cfg.features if c != "operating_angle_deg")
+
+    for leaky, should_overlap in ((False, False), (True, True)):
+        ds = build(marked, WindowConfig(augment_stride=1, features=features,
+                                        leaky_augmentation=leaky))
+        # Undo the min-max on the marker column to recover row ids.
+        lo, hi = ds.stats["min"][0], ds.stats["max"][0]
+        ids = lambda X: set(np.rint(X[:, :, 0] * (hi - lo) + lo).astype(int).ravel())  # noqa: E731
+        held_out = ids(ds.X_val) | ids(ds.X_test)
+        overlap = ids(ds.X_train) & held_out
+        assert bool(overlap) is should_overlap, (
+            f"leaky={leaky}: {len(overlap)} readings shared with held-out data")
+
+
+def test_window_labels_come_from_the_last_reading():
+    from vayeron.benchmarks import TIERS, WindowConfig, build
+
+    scored = _scored_field_record()
+    ds = build(scored, WindowConfig(augment_stride=0))
+    assert set(np.unique(ds.y_train)) <= set(range(len(TIERS)))
+    # Every split carries every tier - the coverage guarantee KX-VAY-014 needs.
+    for split in ("train", "val", "test"):
+        counts = ds.counts(split)
+        assert all(counts[t] > 0 for t in TIERS), f"{split} missing a tier: {counts}"
+
+
+def test_hand_rolled_metrics_match_sklearn():
+    """The augmentation result rests entirely on these two functions, so they
+    are checked against a reference rather than trusted."""
+    pytest.importorskip("sklearn")
+    from sklearn.metrics import f1_score, precision_score, recall_score
+
+    from vayeron.experiment import _macro_f1, _per_class
+
+    rng = np.random.default_rng(3)
+    for _ in range(20):
+        y_true = rng.integers(0, 3, 300)
+        y_pred = rng.integers(0, 3, 300)
+        assert _macro_f1(y_true, y_pred) == pytest.approx(
+            f1_score(y_true, y_pred, average="macro", zero_division=0))
+        per = _per_class(y_true, y_pred)
+        rec = recall_score(y_true, y_pred, average=None, zero_division=0)
+        prec = precision_score(y_true, y_pred, average=None, zero_division=0)
+        for i, tier in enumerate(("normal", "watch", "alert")):
+            assert per[f"recall_{tier}"] == pytest.approx(rec[i])
+            assert per[f"precision_{tier}"] == pytest.approx(prec[i])

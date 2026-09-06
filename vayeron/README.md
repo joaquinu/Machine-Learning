@@ -21,6 +21,8 @@ equation, not a confirmed mechanical failure. Scoring an external record that
 | `sensitivity.py` | sweeps the analyst's free choices so a lead time is not a one-configuration artefact |
 | `report.py` | lead-time analysis, markdown report, diagnostic plot |
 | `campaign.py` | multi-seed x multi-fault-mode sweep over the surrogate |
+| `benchmarks.py` | 12-reading windows, class-stratified splits, minority-class overlapping augmentation |
+| `experiment.py` | trains a small GRU on each augmentation variant and scores one untouched test set |
 | `label_audit.py` | how much of an existing `alert` class is EMA-smeared knocks |
 | `cli.py` | `python -m vayeron.cli` |
 | `tests/` | 26 unit tests, `python -m pytest vayeron/tests` |
@@ -58,6 +60,26 @@ Verify the pipeline with no data at all:
 python -m vayeron.cli --synthetic --healthy-ratio 0.15 --sensitivity --out reports/surrogate
 python -m vayeron.campaign     # 5 fault modes x 6 seeds x 2 variants
 ```
+
+## Does minority-class augmentation help?
+
+Non-overlapping windows turn 81,774 rows into ~6,800 samples and discard every
+window that straddles a boundary. `benchmarks.py` recovers them for the scarce
+classes only:
+
+```bash
+python -m vayeron.experiment      # baseline vs leak-free vs deliberately leaky
+```
+
+The one thing that matters here is *when* the extra windows are made.
+Overlapping windows are near-duplicates, so generating them before the split
+fills the test set with shifted copies of training data and the score rises for
+no good reason. Augmentation therefore happens after the split, and an augmented
+window is admitted only when every reading it covers already belongs to a
+training window. The `leaky_augmentation` flag reproduces the mistake on
+purpose so the size of the illusion can be measured; a test asserts the
+leak-free path shares no reading with the held-out sets and that the leaky one
+does.
 
 ## Auditing the field labels
 

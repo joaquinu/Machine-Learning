@@ -74,11 +74,19 @@ sustains a 3-sample episode only above ≈10.6. At the field cadence of 626 s wi
 | spike crosses the alert limit | 6.25 | ≈22 σ |
 | spike sustains a 3-sample episode | 10.6 | ≈37 σ |
 
-Swept against the field-shaped surrogate, that threshold reproduces exactly:
+That bound assumes a spike against a near-zero baseline. Real severity wanders,
+and a knock landing on already-elevated ground needs far less. Swept against the
+field-shaped surrogate — tuned so its scored tier distribution matches the real
+export at 88.07 / 5.82 / 6.11 — the contamination is a gradient, not a cliff:
 
 | knock size (baseline MADs) | 6 | 12 | 20 | 30 | 45 | 90 |
 |---|---|---|---|---|---|---|
-| share of the alert class it manufactures | 0% | 0% | 6.7% | 41% | 52% | 63% |
+| share of the alert class it manufactures | 0.8% | 1.5% | 3.0% | 6.9% | 13.8% | 21.9% |
+
+There is no size below which knocks are harmless: even 6 MADs takes 0.8% of the
+alert class, because some of those knocks land on stretches where severity is
+already elevated. The closed form is an upper bound on what a knock needs in
+the quiet case, not a safety threshold.
 
 **Change.** Apply a 3-sample median filter to raw severity ahead of the EMA.
 

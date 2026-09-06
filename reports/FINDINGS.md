@@ -85,21 +85,29 @@ tau = 2 h (span 11.5, alpha 0.16):
 | spike crosses the alert limit at all | 6.25 | ~22 sigma |
 | spike sustains a 3-sample episode | 10.6 | ~37 sigma |
 
-Measured against a field-shaped surrogate (81,600 rows, 4 rollers, 626 s
-cadence, 2.8% transients, one sustained 11-day multi-channel event), sweeping
-the knock magnitude reproduces exactly that threshold:
+That bound assumes a lone spike against a near-zero baseline. Measured against a
+field-shaped surrogate — 81,600 rows, 4 rollers, 626 s cadence, 2.8% transients,
+fleet-wide excursions and one sustained 11-day event, tuned so its scored tier
+distribution matches the real export at 88.07 / 5.82 / 6.11 — the contamination
+is a gradient, not a cliff:
 
 | knock size (baseline MADs) | share of the alert class it manufactures |
 |---|---|
-| 6 | 0.0% |
-| 12 | 0.0% |
-| 20 | 6.7% |
-| 30 | 41.0% |
-| 45 | 51.9% |
-| 90 | 62.8% |
+| 6 | 0.8% |
+| 12 | 1.5% |
+| 20 | 3.0% |
+| 30 | 6.9% |
+| 45 | 13.8% |
+| 90 | 21.9% |
 
-Nothing below ~12 MADs; onset around 20; catastrophic by 30. **I do not know
-which side the real field knocks fall on** — that needs the actual CSV, and
+Two things follow. There is **no size below which knocks are harmless** — even
+6 MADs takes 0.8% of the alert class, because some land where severity is
+already elevated and need far less than the lone-spike bound. And the
+contamination is milder than a clean-baseline record suggests: an earlier
+version of this surrogate, whose alert class was only 1.5% of rows and mostly
+spurious, put the 30-MAD figure at 41% against the 6.9% measured here. The
+denominator matters, and only the real record has the right one. **I do not know
+where the real field knocks sit on this curve** — that needs the actual CSV, and
 `python -m vayeron.label_audit --csv vayeron_anomaly_dataset.csv --group-by
 roller_id` answers it in one run. What can be said now is that the mechanism is
 real, the threshold is sharp, and it is cheap to check.
